@@ -251,7 +251,7 @@ forest_area_lm_fits_good %>%
 
 ```{r echo=FALSE}
 selectInput("fa_country", "Select country to predict for",
-            choices = forest_area_lm_fits$country)
+            choices = forest_area_lm_fits_good$country)
 sliderInput("fa_year", "Choose year to predict for",
             min = 1980, max = 2080, value = 2021, step = 1, sep = "")
 
