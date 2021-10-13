@@ -1,0 +1,276 @@
+---
+title: "Deforestation trend analysis"
+author: "Srijan Nayak"
+output:
+  html_document:
+    theme: flatly
+    highlight: zenburn
+    toc: true
+    toc_float: true
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+```{r include=FALSE}
+library(broom)
+library(dplyr)
+library(ggplot2)
+library(purrr)
+library(forcats)
+library(readr)
+library(shiny)
+library(tidyr)
+```
+
+# Reading data
+
+```{r}
+forest <- read_csv("forest.csv", col_types = "ffdd") %>%
+  rename(country = entity) %>%
+  select(-code)
+forest_area <- read_csv("forest_area.csv", col_types = "ffdd") %>%
+  rename(country = entity) %>%
+  select(-code)
+
+attr(forest, "spec") <- NULL
+attr(forest_area, "spec") <- NULL
+```
+
+# Exploring and modelling with `forest` data
+
+```{r}
+head(forest)
+```
+
+## Exploring net forest conversion vs. forest area
+
+```{r, echo=FALSE}
+selectInput("country", "Select country", choices = forest$country)
+
+plot_data <- reactive({
+  req(input$country)
+  
+  forest %>%
+    filter(country == input$country) %>%
+    left_join(forest_area, by = c("country", "year")) %>%
+    pivot_longer(net_forest_conversion:forest_area, names_to = "value_type") %>%
+    mutate(
+      value_type = fct_relevel(value_type, "net_forest_conversion"),
+      value_type = fct_recode(
+        value_type,
+        "Net forest conversion (hectares)" = "net_forest_conversion",
+        "Forest area (% of global forest area)" = "forest_area"
+      )
+    )
+})
+
+renderPlot({
+  ggplot(plot_data(), aes(year, value)) +
+    geom_line() +
+    geom_point() +
+    facet_wrap(vars(value_type), scales = "free_y", ncol = 2) +
+    theme_minimal() +
+    labs(x = "Year", y = "Value")
+})
+```
+
+## Splitting data
+
+```{r}
+forest_train <- forest %>% 
+  group_by(country) %>% 
+  filter(year != max(year)) %>% 
+  ungroup()
+forest_test <- forest %>% 
+  group_by(country) %>% 
+  filter(year == max(year)) %>% 
+  ungroup()
+```
+
+### Proportions of train and test data
+
+```{r}
+round(nrow(forest_train) / nrow(forest), 2)
+```
+
+```{r}
+round(nrow(forest_test) / nrow(forest), 2)
+```
+
+## Modelling
+
+```{r}
+forest_lm_fits <- forest_train %>%
+  nest(data = -country) %>%
+  mutate(
+    fit = map(data, ~ lm(net_forest_conversion ~ year, data = .x)),
+    glanced = map(fit, glance),
+  )
+head(forest_lm_fits)
+```
+
+```{r}
+forest_lm_fits_good <- forest_lm_fits %>% 
+  unnest(cols = glanced) %>% 
+  filter(adj.r.squared > 0.6) %>% 
+  select(country, fit)
+head(forest_lm_fits_good)
+```
+
+### Cheching model accuracy
+
+```{r}
+forest_lm_fits_good %>%
+  filter(country != "World") %>% 
+  left_join(forest_test, by = "country") %>%
+  mutate(
+    pred_conversion = round(map2_dbl(fit, year, ~ predict(.x, list(year = .y))))
+  ) %>% 
+  ggplot(aes(net_forest_conversion, pred_conversion)) +
+  geom_point() +
+  geom_abline(color = "grey", linetype = "dashed") +
+  coord_fixed() +
+  theme_minimal() +
+  labs(
+    title = "Model accuracy",
+    subtitle = "Predicting for year 2015",
+    x = "Actual forest conversion in hectares",
+    y = "Predicted forest conversion in hectares"
+  )
+```
+
+### Predicting net forest conversion for particular country
+
+```{r echo=FALSE}
+selectInput("nfc_country", "Select country to predict for",
+            choices = forest_lm_fits_good$country)
+sliderInput("nfc_year", "Choose year to predict for",
+            min = 1980, max = 2080, value = 2021, step = 1, sep = "")
+
+nfc_model <- reactive({
+  req(input$nfc_country)
+  
+  lm_list <- forest_lm_fits_good %>%
+    filter(country == input$nfc_country) %>% 
+    slice_head(n = 1) %>% 
+    pull(fit)
+  lm_list[[1]]
+})
+
+nfc_prediction <- reactive({
+  req(input$nfc_year)
+
+  prediction <- predict(nfc_model(), list(year = input$nfc_year))
+  paste("Net forest conversion:", round(prediction, 2), "hectares")
+})
+
+renderText(nfc_prediction())
+```
+
+# Exploring and modelling with `forest_area` data
+
+```{r}
+head(forest_area)
+```
+
+```{r}
+forest_area %>% 
+  count(country) %>% 
+  arrange(n) %>% 
+  head()
+```
+
+## Splitting data
+
+```{r}
+forest_area_train <- forest_area %>% 
+  group_by(country) %>% 
+  filter(!(year %in% sort(year, decreasing = TRUE)[1:4])) %>% 
+  ungroup()
+forest_area_test <- forest_area %>% 
+  group_by(country) %>% 
+  filter(year %in% sort(year, decreasing = TRUE)[1:4]) %>% 
+  ungroup()
+```
+
+### Proportions of train and test data
+
+```{r}
+round(nrow(forest_area_train) / nrow(forest_area), 2)
+```
+
+```{r}
+round(nrow(forest_area_test) / nrow(forest_area), 2)
+```
+
+## Modelling
+
+```{r}
+forest_area_lm_fits <- forest_area_train %>% 
+  nest(data = -country) %>% 
+  mutate(
+    fit = map(data, ~ lm(forest_area ~ year, data = .x)),
+    glanced = map(fit, glance)
+  )
+head(forest_area_lm_fits)
+```
+
+```{r}
+forest_area_lm_fits_good <- forest_area_lm_fits %>% 
+  unnest(cols = glanced) %>% 
+  filter(adj.r.squared > 0.6) %>% 
+  select(country, fit)
+head(forest_area_lm_fits_good)
+```
+
+### Cheching model accuracy
+
+```{r}
+forest_area_lm_fits_good %>%
+  left_join(forest_area_test, by = "country") %>%
+  mutate(
+    pred_area = round(map2_dbl(fit, year, ~ predict(.x, list(year = .y))))
+  ) %>%
+  ggplot(aes(forest_area, pred_area)) +
+  geom_point() +
+  geom_abline(color = "grey", linetype = "dashed") +
+  facet_wrap(vars(year), ncol = 2) +
+  theme_minimal() +
+  labs(
+    title = "Model accuracy",
+     x = "Actual forest area (% of global forest area)",
+     y = "Predicted forest area (% of global forest area)"
+  ) +
+  coord_fixed()
+```
+
+### Predicting proportion of global forest area for particular country
+
+```{r echo=FALSE}
+selectInput("fa_country", "Select country to predict for",
+            choices = forest_area_lm_fits$country)
+sliderInput("fa_year", "Choose year to predict for",
+            min = 1980, max = 2080, value = 2021, step = 1, sep = "")
+
+fa_model <- reactive({
+  req(input$fa_country)
+  
+  lm_list <- forest_area_lm_fits_good %>%
+    filter(country == input$fa_country) %>% 
+    slice_head(n = 1) %>% 
+    pull(fit)
+  lm_list[[1]]
+})
+
+fa_prediction <- reactive({
+  req(input$fa_year)
+
+  prediction <- predict(fa_model(), list(year = input$fa_year))
+  paste("Forest area:", round(prediction, 2), "%")
+})
+
+renderText(fa_prediction())
+```
