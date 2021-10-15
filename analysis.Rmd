@@ -37,9 +37,11 @@ Data used for this analysis is taken from week 15 of the
 ```{r}
 forest <- read_csv("forest.csv", col_types = "ffdd") %>%
   rename(country = entity) %>%
+  filter(country != "World") %>%
   select(-code)
 forest_area <- read_csv("forest_area.csv", col_types = "ffdd") %>%
   rename(country = entity) %>%
+  filter(country != "World") %>%
   select(-code)
 
 attr(forest, "spec") <- NULL
