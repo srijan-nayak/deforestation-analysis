@@ -27,6 +27,13 @@ library(tidyr)
 
 # Reading data
 
+Data used for this analysis is taken from week 15 of the
+[TidyTuesday project][tidytuesday-link] for the year 2021,
+[Deforestaion][deforesttion-datasets-link].
+
+[tidytuesday-link]: https://github.com/rfordatascience/tidytuesday
+[deforesttion-datasets-link]: https://github.com/rfordatascience/tidytuesday/blob/master/data/2021/2021-04-06/readme.md
+
 ```{r}
 forest <- read_csv("forest.csv", col_types = "ffdd") %>%
   rename(country = entity) %>%
