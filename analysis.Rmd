@@ -14,6 +14,14 @@ runtime: shiny
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
 ```
 
+# Objective
+
+The objective of this analysis is to try to see the future state of forest
+covers across the world. Is it certain that the forest covers in all countries
+will disappear very soon? Or, is there hope that efforts in the recent years
+for increasing area under forest cover are not in vain, and thus can we see an
+increase in forest covers across countries in the coming years?
+
 ```{r include=FALSE}
 library(broom)
 library(dplyr)
@@ -56,6 +64,14 @@ head(forest)
 
 ## Exploring net forest conversion vs. forest area
 
+The `net_forest_conversion` variable is a bit ambiguous in the sense that it's
+not clear if it mean forest cover that has been converted for other purposes, or 
+is it land that has been converted to forest cover.
+
+The following interactive application shows the change in net forest conversion
+and forest area over the years for a selected country, on the left and right
+respectively.
+
 ```{r, echo=FALSE}
 selectInput("country", "Select country", choices = forest$country)
 
@@ -86,7 +102,16 @@ renderPlot({
 })
 ```
 
+Looking at the plots for a few countries it seems that net forest conversion is 
+inversely related to forest area, meaning that it represents the deforestation 
+amount.
+
 ## Splitting data
+
+The data set has only a few years of data for each country, therefore randomly
+splitting the data might not leave sufficient training data for some countries.
+Thus only the most recent observation is taken in the test data set for each
+country.
 
 ```{r}
 forest_train <- forest %>% 
@@ -111,6 +136,11 @@ round(nrow(forest_test) / nrow(forest), 2)
 
 ## Modelling
 
+Instead of keeping `country` as another independent variable in the model,
+a separate simple linear regression model is created for each country, with
+`net_forest_conversion` as dependent variable and `year` as the independent 
+variable. The `fit` variable contains the SLR models for each country.
+
 ```{r}
 forest_lm_fits <- forest_train %>%
   nest(data = -country) %>%
@@ -120,6 +150,9 @@ forest_lm_fits <- forest_train %>%
   )
 head(forest_lm_fits)
 ```
+
+Some countries don't have enough data for training which give poor fitted
+models. Thus only models with an $\text{Adjusted } R^2 > 0.6$ are kept.
 
 ```{r}
 forest_lm_fits_good <- forest_lm_fits %>% 
@@ -133,7 +166,6 @@ head(forest_lm_fits_good)
 
 ```{r}
 forest_lm_fits_good %>%
-  filter(country != "World") %>% 
   left_join(forest_test, by = "country") %>%
   mutate(
     pred_conversion = round(map2_dbl(fit, year, ~ predict(.x, list(year = .y))))
@@ -145,11 +177,14 @@ forest_lm_fits_good %>%
   theme_minimal() +
   labs(
     title = "Model accuracy",
-    subtitle = "Predicting for year 2015",
     x = "Actual forest conversion in hectares",
     y = "Predicted forest conversion in hectares"
   )
 ```
+
+Most models have their predictions close to the $45^\circ$ reference line
+passing through the origin when plotted against the actual forest conversion.
+Thus most of the filtered models are decent for making future predictions.
 
 ### Predicting net forest conversion for particular country
 
@@ -194,6 +229,9 @@ forest_area %>%
 
 ## Splitting data
 
+Similar to the previous case, due to the small amount of data only the 4 most 
+recent observations have been taken in the test data for each country.
+
 ```{r}
 forest_area_train <- forest_area %>% 
   group_by(country) %>% 
@@ -217,6 +255,8 @@ round(nrow(forest_area_test) / nrow(forest_area), 2)
 
 ## Modelling
 
+Just like before, a separate SLR model is created for each country...
+
 ```{r}
 forest_area_lm_fits <- forest_area_train %>% 
   nest(data = -country) %>% 
@@ -226,6 +266,8 @@ forest_area_lm_fits <- forest_area_train %>%
   )
 head(forest_area_lm_fits)
 ```
+
+...and only models with an $\text{Adjusted } R^2 > 0.6$ are kept.
 
 ```{r}
 forest_area_lm_fits_good <- forest_area_lm_fits %>% 
@@ -246,7 +288,6 @@ forest_area_lm_fits_good %>%
   ggplot(aes(forest_area, pred_area)) +
   geom_point() +
   geom_abline(color = "grey", linetype = "dashed") +
-  facet_wrap(vars(year), ncol = 2) +
   theme_minimal() +
   labs(
     title = "Model accuracy",
@@ -255,6 +296,9 @@ forest_area_lm_fits_good %>%
   ) +
   coord_fixed()
 ```
+
+Judging from the plot, the model seems to perform really well when compared with
+the actual forest areas from the test data set.
 
 ### Predicting proportion of global forest area for particular country
 
@@ -278,8 +322,20 @@ fa_prediction <- reactive({
   req(input$fa_year)
 
   prediction <- predict(fa_model(), list(year = input$fa_year))
-  paste("Forest area:", round(prediction, 2), "%")
+  paste("Forest area:", round(prediction, 5), "%")
 })
 
 renderText(fa_prediction())
 ```
+
+# Conclusion
+
+Just looking at the predictions, it seems that situation may not be as bad as we 
+already believe. A lot of countries seem to be following a trend of lower net 
+forest conversions throughout the years and almost all countries seem to be 
+following an uptrend for larger forest areas.
+
+It should be noted that this analysis was done with very limited data and a lot
+of factors have not been accounted for. Thus even though the predictions seem
+to be showing a positive future, we should not let our guard down and actively
+try to battle deforestation in our own individual ways.
